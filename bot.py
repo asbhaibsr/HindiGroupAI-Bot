@@ -16,7 +16,7 @@ PORT = int(os.environ.get("PORT", 8080))
 
 # MongoDB
 user_db = MongoClient("mongodb+srv://wtqf35lojv:9uhGrKZE4i0zz05x@cluster0.nmtfsys.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["users"]
-ai_db = MongoClient("mongodb+srv://mazicaqa:8JjTUtKDjrdowpQ9@cluster0.7yei1uf.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["chats"]
+ai_db = MongoClient("mongodb+srv://wtqf35lojv:9uhGrKZE4i0zz05x@cluster0.nmtfsys.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["chats"]
 
 # Flask Uptime Server
 app = Flask("bot")
@@ -28,7 +28,32 @@ threading.Thread(target=lambda: app.run(host="0.0.0.0", port=PORT)).start()
 # Pyrogram Client
 bot = Client("Angel", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# Commands
+# --- AI REPLY FUNCTION WITH MEMORY ---
+def get_memory_based_reply(user_id, message):
+    previous = ai_db.find_one({"user_id": user_id, "user_text": message})
+    if previous and "bot_reply" in previous:
+        return previous["bot_reply"]
+    
+    # Generate new AI reply
+    response_list = [
+        "Awww, tum to bade cute ho! 😚",
+        "Yeh baat! Tum jaise logon se hi to group me jaan aati hai 😍",
+        "Suno zara... Tumhare jaise pyare log kam milte hai 🥺",
+        "Haye! Tum bolte ho to dil garden garden ho jata hai 💐",
+        "Aisa laga jese tumne dil chhoo liya ho 💞"
+    ]
+    reply = random.choice(response_list)
+
+    # Save in DB for memory
+    ai_db.insert_one({
+        "user_id": user_id,
+        "user_text": message,
+        "bot_reply": reply,
+        "time": datetime.datetime.now()
+    })
+    return reply
+
+# --- /start command ---
 @bot.on_message(filters.command("start") & filters.private)
 async def start(_, m: Message):
     await m.reply_photo(
@@ -49,6 +74,7 @@ async def start(_, m: Message):
     )
     user_db.update_one({"user_id": m.from_user.id}, {"$set": {"time": datetime.datetime.now()}}, upsert=True)
 
+# --- /help command ---
 @bot.on_message(filters.command("help"))
 async def help(_, m: Message):
     await m.reply_text(
@@ -61,25 +87,14 @@ async def help(_, m: Message):
         "`/ban` / `/kick` / `/mute` – Spam control"
     )
 
+# --- AI Group Reply ---
 @bot.on_message(filters.text & filters.group & ~filters.bot)
 async def ai_group(_, m: Message):
     if m.text.startswith("/"): return
-    ai_db.insert_one({
-        "chat_id": m.chat.id,
-        "user": m.from_user.first_name,
-        "text": m.text,
-        "time": datetime.datetime.now()
-    })
 
-    # Random promotional message (3-4 hours)
-    if random.randint(1, 200) == 3:
-        promos = [
-            "🔥 Join @asbhai_bsr – 18+ Premium Apps, Web Series & more!",
-            "🎬 Movies ke liye @iStreamX group me search karo!"
-        ]
-        await m.reply_text(random.choice(promos))
+    reply = get_memory_based_reply(m.from_user.id, m.text)
 
-    await m.reply_text(f"💬 {m.from_user.first_name} bol rahe ho: {m.text}\n\n_Mujhe bhi kuch kehna hai?_", quote=True)
+    await m.reply_text(f"💬 {m.from_user.first_name} bol rahe ho: {reply}\n\n_Mujhe bhi kuch kehna hai?_", quote=True)
 
+# --- Run Bot ---
 bot.run()
-
