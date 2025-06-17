@@ -1,6 +1,6 @@
-pyrogram
-tgcrypto
-pymongo
-g4f
-flask
-httpx
+Flask==3.0.3
+pyrogram==2.0.106
+tgcrypto==1.2.5
+dnspython==2.6.1
+motor==3.4.0
+httpx==0.27.0
