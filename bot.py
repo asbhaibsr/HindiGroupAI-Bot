@@ -6,6 +6,7 @@ from flask import Flask
 import threading
 import random
 import datetime
+import aiohttp
 
 # ENV
 API_ID = 28762030
@@ -16,7 +17,7 @@ PORT = int(os.environ.get("PORT", 8080))
 
 # MongoDB
 user_db = MongoClient("mongodb+srv://wtqf35lojv:9uhGrKZE4i0zz05x@cluster0.nmtfsys.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["users"]
-ai_db = MongoClient("mongodb+srv://wtqf35lojv:9uhGrKZE4i0zz05x@cluster0.nmtfsys.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["chats"]
+ai_memory = MongoClient("mongodb+srv://wtqf35lojv:9uhGrKZE4i0zz05x@cluster0.nmtfsys.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["chat_memory"]
 
 # Flask Uptime Server
 app = Flask("bot")
@@ -25,35 +26,41 @@ def home():
     return "Bot is alive! 💖"
 threading.Thread(target=lambda: app.run(host="0.0.0.0", port=PORT)).start()
 
+# AI SYSTEM with fallback
+async def generate_ai_reply(prompt: str) -> str:
+    try:
+        # Try g4f
+        from g4f.client import Client as G4FClient
+        client = G4FClient()
+        response = client.chat.completions.create(
+            model="gpt-3.5-turbo",
+            messages=[{"role": "user", "content": prompt}]
+        )
+        return response.choices[0].message.content
+    except Exception:
+        pass
+    try:
+        # Try YQCloud fallback
+        async with aiohttp.ClientSession() as session:
+            async with session.get(f"https://api.yqcloud.top/ai/chatgpt?message={prompt}") as resp:
+                data = await resp.json()
+                return data.get("content", "😶 Mujhe samajh nahi aaya.")
+    except Exception:
+        return "😓 Mujhe kuch technical problem ho gayi. Thodi der baad try karo!"
+
+# Get memory-based reply
+async def get_memory_based_reply(user_id, prompt):
+    previous = ai_memory.find_one({"q": prompt})
+    if previous:
+        return previous["a"]
+    reply = await generate_ai_reply(prompt)
+    ai_memory.insert_one({"q": prompt, "a": reply, "from": user_id})
+    return reply
+
 # Pyrogram Client
 bot = Client("Angel", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# --- AI REPLY FUNCTION WITH MEMORY ---
-def get_memory_based_reply(user_id, message):
-    previous = ai_db.find_one({"user_id": user_id, "user_text": message})
-    if previous and "bot_reply" in previous:
-        return previous["bot_reply"]
-    
-    # Generate new AI reply
-    response_list = [
-        "Awww, tum to bade cute ho! 😚",
-        "Yeh baat! Tum jaise logon se hi to group me jaan aati hai 😍",
-        "Suno zara... Tumhare jaise pyare log kam milte hai 🥺",
-        "Haye! Tum bolte ho to dil garden garden ho jata hai 💐",
-        "Aisa laga jese tumne dil chhoo liya ho 💞"
-    ]
-    reply = random.choice(response_list)
-
-    # Save in DB for memory
-    ai_db.insert_one({
-        "user_id": user_id,
-        "user_text": message,
-        "bot_reply": reply,
-        "time": datetime.datetime.now()
-    })
-    return reply
-
-# --- /start command ---
+# Commands
 @bot.on_message(filters.command("start") & filters.private)
 async def start(_, m: Message):
     await m.reply_photo(
@@ -74,7 +81,6 @@ async def start(_, m: Message):
     )
     user_db.update_one({"user_id": m.from_user.id}, {"$set": {"time": datetime.datetime.now()}}, upsert=True)
 
-# --- /help command ---
 @bot.on_message(filters.command("help"))
 async def help(_, m: Message):
     await m.reply_text(
@@ -87,14 +93,26 @@ async def help(_, m: Message):
         "`/ban` / `/kick` / `/mute` – Spam control"
     )
 
-# --- AI Group Reply ---
+# AI Chat in group
 @bot.on_message(filters.text & filters.group & ~filters.bot)
 async def ai_group(_, m: Message):
     if m.text.startswith("/"): return
 
-    reply = get_memory_based_reply(m.from_user.id, m.text)
+    ai_memory.insert_one({
+        "chat_id": m.chat.id,
+        "user": m.from_user.first_name,
+        "text": m.text,
+        "time": datetime.datetime.now()
+    })
 
+    if random.randint(1, 150) == 3:
+        promos = [
+            "🔥 Join @asbhai_bsr – 18+ Premium Apps, Web Series & more!",
+            "🎬 Movies ke liye @iStreamX group me search karo!"
+        ]
+        await m.reply_text(random.choice(promos))
+
+    reply = await get_memory_based_reply(m.from_user.id, m.text)
     await m.reply_text(f"💬 {m.from_user.first_name} bol rahe ho: {reply}\n\n_Mujhe bhi kuch kehna hai?_", quote=True)
 
-# --- Run Bot ---
 bot.run()
