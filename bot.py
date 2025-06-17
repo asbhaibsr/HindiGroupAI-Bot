@@ -1,87 +1,43 @@
-import os
 from pyrogram import Client, filters
 from pyrogram.types import Message, InlineKeyboardMarkup, InlineKeyboardButton
-from pymongo import MongoClient
-from flask import Flask
-import threading
-import random
-import datetime
+from config import API_ID, API_HASH, BOT_TOKEN, OWNER_ID
+from ai_reply import generate_ai_reply
+from db import save_chat, get_similar_reply
+from commands import *
 
-from ai_reply import generate_ai_reply  # NEW
+bot = Client("Bot", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
 
-# ENV
-API_ID = 28762030
-API_HASH = "918e2aa94075a7d04717b371a21fb689"
-BOT_TOKEN = os.environ.get("BOT_TOKEN")
-OWNER_ID = int(os.environ.get("OWNER_ID"))
-PORT = int(os.environ.get("PORT", 8080))
-
-# MongoDB
-user_db = MongoClient("mongodb+srv://wtqf35lojv:9uhGrKZE4i0zz05x@cluster0.nmtfsys.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["users"]
-ai_db = MongoClient("mongodb+srv://mazicaqa:8JjTUtKDjrdowpQ9@cluster0.7yei1uf.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["chats"]
-
-# Flask Uptime Server
-app = Flask("bot")
-@app.route("/")
-def home():
-    return "Bot is alive! 💖"
-threading.Thread(target=lambda: app.run(host="0.0.0.0", port=PORT)).start()
-
-# Pyrogram Client
-bot = Client("Angel", api_id=API_ID, api_hash=API_HASH, bot_token=BOT_TOKEN)
-
-# Commands
-@bot.on_message(filters.command("start") & filters.private)
-async def start(_, m: Message):
-    await m.reply_photo(
-        photo="https://envs.sh/XsX.jpg",
-        caption=(
-            f"👋 Hey {m.from_user.mention()}, main ek Hindi AI Ladki hoon jo group me masti aur baat dono karti hai!\n\n"
-            "**Mujhe Add karke:**\n"
-            "- Group Members se baat karao\n"
-            "- Spam rokne me madad\n"
-            "- Romantic, Funny, Smart replies\n\n"
-            "✨ Use /help to see all commands!"
-        ),
+@bot.on_message(filters.private & ~filters.command(["start", "help", "stats", "clear"]))
+async def private_msg(bot, message: Message):
+    await bot.send_message(
+        OWNER_ID,
+        f"💌 Message from [{message.from_user.first_name}](tg://user?id={message.from_user.id}):\n\n{message.text}",
         reply_markup=InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ Add Me To Group", url=f"https://t.me/{bot.me.username}?startgroup=true")],
-            [InlineKeyboardButton("💬 Movie Group", url="https://t.me/iStreamX")],
-            [InlineKeyboardButton("📢 Update Channel", url="https://t.me/asbhai_bsr")],
+            [InlineKeyboardButton("✉️ Reply", callback_data=f"reply_{message.from_user.id}")]
         ])
     )
-    user_db.update_one({"user_id": m.from_user.id}, {"$set": {"time": datetime.datetime.now()}}, upsert=True)
+    await message.reply("💖 Tumhara message owner tak pahuch gaya... reply aayega 😘")
 
-@bot.on_message(filters.command("help"))
-async def help(_, m: Message):
-    await m.reply_text(
-        "**🔧 Help Menu:**\n\n"
-        "`/settings` – Bot features on/off\n"
-        "`/stats` – User & group count\n"
-        "`/clear <reply>` – Delete user data (owner only)\n"
-        "`/reply` – Reply to PM\n"
-        "`/pin` / `/unpin` – Pin messages (admins only)\n"
-        "`/ban` / `/kick` / `/mute` – Spam control"
-    )
+@bot.on_callback_query(filters.regex("reply_"))
+async def handle_reply(bot, query):
+    user_id = int(query.data.split("_")[1])
+    await query.message.reply(f"✍️ Reply to user {user_id}:", quote=True)
 
-@bot.on_message(filters.text & filters.group & ~filters.bot)
-async def ai_group(_, m: Message):
-    if m.text.startswith("/"): return
-    ai_db.insert_one({
-        "chat_id": m.chat.id,
-        "user": m.from_user.first_name,
-        "text": m.text,
-        "time": datetime.datetime.now()
-    })
+@bot.on_message(filters.reply & filters.user(OWNER_ID))
+async def send_reply(bot, message: Message):
+    if message.reply_to_message:
+        try:
+            user_id = int(message.reply_to_message.text.split()[-1][:-1])
+            await bot.send_message(user_id, f"📬 Owner reply:\n\n{message.text}")
+            await message.reply("✅ Sent!")
+        except Exception:
+            pass
 
-    # Random promotional message (3-4 hours)
-    if random.randint(1, 200) == 3:
-        promos = [
-            "🔥 Join @asbhai_bsr – 18+ Premium Apps, Web Series & more!",
-            "🎬 Movies ke liye @iStreamX group me search karo!"
-        ]
-        await m.reply_text(random.choice(promos))
-
-    ai_reply = await generate_ai_reply(m.text)  # NEW SMART AI REPLY
-    await m.reply_text(f"💬 {m.from_user.first_name} bol rahe ho: {ai_reply}\n\n_Mujhe bhi kuch kehna hai?_", quote=True)
-
-bot.run()
+@bot.on_message(filters.group & ~filters.command(["start", "help", "stats", "clear"]))
+async def group_ai(bot, message: Message):
+    if message.text:
+        reply = await get_similar_reply(message.text)
+        if not reply:
+            reply = await generate_ai_reply(message.text)
+            await save_chat(message.from_user.id, message.text, reply)
+        await message.reply(reply)
