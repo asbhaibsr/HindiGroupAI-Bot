@@ -1,39 +1,53 @@
-import httpx
 import random
-import json
+import httpx
 
-# List of fallback AI APIs
-FREE_AI_APIS = [
-    "https://yqcloud.openai-proxy.xyz/v1/chat/completions",
-    "https://api.aichat.io/v1/chat/completions",
-    "https://ai.fakeopen.com/v1/chat/completions",
-]
+async def generate_ai_reply(user_message: str) -> str:
+    user_message = user_message.strip()
 
-HEADERS = {
-    "Content-Type": "application/json",
-    "Authorization": "Bearer pk-thisisfake"  # free endpoints don't need real key
-}
+    if not user_message:
+        return "😅 Tumne to kuch likha hi nahi! Pehle kuch to bolo 💬"
 
-async def generate_ai_reply(message: str) -> str:
-    system_prompt = "You are a cute and smart Hindi girl AI who gives flirty, funny, romantic, emotional and smart replies."
+    backends = [
+        ask_g4f,
+        ask_phind,
+        ask_gemini,
+        ask_yqcloud
+    ]
 
-    payload = {
-        "model": "gpt-3.5-turbo",
-        "messages": [
-            {"role": "system", "content": system_prompt},
-            {"role": "user", "content": message}
-        ],
-        "temperature": 0.7,
-    }
-
-    for api_url in FREE_AI_APIS:
+    for backend in backends:
         try:
-            async with httpx.AsyncClient(timeout=10) as client:
-                r = await client.post(api_url, json=payload, headers=HEADERS)
-                if r.status_code == 200:
-                    data = r.json()
-                    return data["choices"][0]["message"]["content"]
+            response = await backend(user_message)
+            if response and len(response.strip()) > 0:
+                return response.strip()
         except Exception:
             continue
 
     return "😓 Mujhe kuch technical problem ho gayi. Thodi der baad try karo!"
+
+# ---- BACKEND 1: g4f (fake ChatGPT)
+async def ask_g4f(prompt: str) -> str:
+    url = "https://gpt4chat.loca.lt/api"
+    async with httpx.AsyncClient() as client:
+        r = await client.post(url, json={"prompt": prompt})
+        return r.json().get("response", "")
+
+# ---- BACKEND 2: phind
+async def ask_phind(prompt: str) -> str:
+    url = "https://phind-api.vercel.app/api"
+    async with httpx.AsyncClient() as client:
+        r = await client.post(url, json={"prompt": prompt})
+        return r.json().get("text", "")
+
+# ---- BACKEND 3: Gemini API (fake)
+async def ask_gemini(prompt: str) -> str:
+    url = "https://gemini-api-nu.vercel.app/api/gemini"
+    async with httpx.AsyncClient() as client:
+        r = await client.post(url, json={"message": prompt})
+        return r.json().get("text", "")
+
+# ---- BACKEND 4: yqcloud (Chinese free ChatGPT)
+async def ask_yqcloud(prompt: str) -> str:
+    url = "https://freegptapi.vercel.app/api/openai"
+    async with httpx.AsyncClient() as client:
+        r = await client.post(url, json={"prompt": prompt})
+        return r.json().get("response", "")
