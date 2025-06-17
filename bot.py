@@ -15,7 +15,7 @@ OWNER_ID = int(os.environ.get("OWNER_ID"))
 PORT = int(os.environ.get("PORT", 8080))
 
 # MongoDB
-user_db = MongoClient("mongodb+srv://rogola2721:LGbRLbhopZl8labG@cluster0.urfp3iw.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["users"]
+user_db = MongoClient("mongodb+srv://mazicaqa:8JjTUtKDjrdowpQ9@cluster0.7yei1uf.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["users"]
 ai_db = MongoClient("mongodb+srv://wtqf35lojv:9uhGrKZE4i0zz05x@cluster0.nmtfsys.mongodb.net/?retryWrites=true&w=majority&tls=true")["AngelBot"]["chats"]
 
 # Flask Uptime Server
